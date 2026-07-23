@@ -1709,24 +1709,13 @@
         //  COMUNICACIÓN CON APPS SCRIPT - FILOSOFÍA DE ADUANA
         // ========================================================================
 
-        /**
-         * Envía una petición POST a Apps Script con la Filosofía de Aduana
-         * ✅ text/plain - Evita preflight (petición simple)
-         * ✅ mode: 'cors' - Permite leer la respuesta
-         * ✅ JSON.stringify() - Traduce objeto a texto
-         * ✅ JSON.parse() - Traduce texto a objeto
-         */
         function callAppScriptPOST(action, payload = {}) {
             return new Promise((resolve, reject) => {
-                // ===== PASO 1: CONSTRUIR OBJETO =====
                 const objeto = { action, payload };
-
-                // ===== PASO 2: TRADUCIR A TEXTO PLANO =====
                 const body = JSON.stringify(objeto);
 
                 console.log('📤 Enviando POST:', { action, payload });
 
-                // ===== PASO 3: ENVIAR CON mode: 'cors' y text/plain =====
                 fetch(URL_APPSCRIPT, {
                         method: 'POST',
                         mode: 'cors',
@@ -1743,11 +1732,7 @@
                     })
                     .then(text => {
                         console.log('📥 Recibido (POST):', text.substring(0, 200));
-
-                        // ===== PASO 4: TRADUCIR DE TEXTO A OBJETO =====
                         const data = JSON.parse(text);
-
-                        // ===== PASO 5: VERIFICAR RESPUESTA =====
                         if (data.success) {
                             resolve(data.data);
                         } else {
@@ -1761,9 +1746,6 @@
             });
         }
 
-        /**
-         * Envía una petición GET a Apps Script para lectura de datos
-         */
         function callAppScriptGET(action) {
             return new Promise((resolve, reject) => {
                 fetch(URL_APPSCRIPT + '?action=' + encodeURIComponent(action), {
@@ -1835,10 +1817,6 @@
                 console.error(`❌ Error al cargar ${tipo}:`, error);
             }
             return null;
-        }
-
-        function limpiarLocalmente(tipo) {
-            localStorage.removeItem(`sicsa_${tipo}`);
         }
 
         // ========================================================================
@@ -1950,7 +1928,7 @@
         const SYNC_INTERVAL_MS = 60000;
 
         // ========================================================================
-        //  CARGA DE DATOS - OFFLINE-FIRST
+        //  CARGA DE DATOS - OFFLINE-FIRST CON PREDEFINIDOS
         // ========================================================================
 
         function cargarDatosLocales() {
@@ -2002,10 +1980,8 @@
             console.log('🔄 Cargando datos completos...');
             state.loading = true;
 
-            // 1. Intentar cargar desde local primero
             cargarDatosLocales();
 
-            // 2. Si hay conexión, actualizar desde el servidor
             if (navigator.onLine) {
                 actualizarDatosDesdeServidor();
             } else {
@@ -2036,11 +2012,15 @@
                     state.trabajadores = data;
                     recaudoTrabajadoresList = data;
                     guardarLocalmente('trabajadores', data);
+                    // 🔥 ACTUALIZAR SELECT CON PREDEFINIDOS
                     actualizarSelectTrabajadores();
                     console.log(`✅ ${data.length} trabajadores actualizados`);
                 })
                 .catch(() => {
                     console.warn('⚠️ Usando trabajadores locales (error de conexión)');
+                    if (recaudoTrabajadoresList.length > 0) {
+                        actualizarSelectTrabajadores();
+                    }
                 }),
                 callAppScriptGET('obtenerFacturas')
                 .then(data => {
@@ -2118,7 +2098,60 @@
         }
 
         // ========================================================================
-        //  SINCRONIZACIÓN AUTOMÁTICA - OFFLINE-FIRST
+        //  🔥 ACTUALIZAR SELECT DE TRABAJADORES CON PREDEFINIDOS
+        // ========================================================================
+
+        function actualizarSelectTrabajadores() {
+            const select = document.getElementById('workerSelect');
+            if (!select) return;
+
+            // Guardar valor actual
+            const valorActual = select.value;
+
+            select.innerHTML = '<option value="">TODOS</option>';
+
+            recaudoTrabajadoresList.forEach(trab => {
+                const option = document.createElement('option');
+                option.value = trab.nombre;
+
+                let textoMostrar = trab.nombre;
+                if (trab.codigo) {
+                    textoMostrar += ` (${trab.codigo})`;
+                }
+
+                // ⭐ Marcar predefinido con estrella
+                if (trab.predefinido === true) {
+                    textoMostrar += ' ⭐';
+                }
+
+                option.textContent = textoMostrar;
+
+                // Si el valor actual coincide, seleccionar
+                if (valorActual && valorActual === trab.nombre) {
+                    option.selected = true;
+                }
+
+                select.appendChild(option);
+            });
+
+            // 🔥 SELECCIONAR PREDEFINIDO SI NO HAY SELECCIÓN
+            if (!select.value || select.value === '') {
+                let trabajadorSeleccionado = recaudoTrabajadoresList.find(t => t.predefinido === true);
+                if (trabajadorSeleccionado) {
+                    select.value = trabajadorSeleccionado.nombre;
+                    console.log('✅ Seleccionado trabajador PREDEFINIDO:', trabajadorSeleccionado.nombre);
+                } else if (recaudoTrabajadoresList.length > 0) {
+                    select.value = recaudoTrabajadoresList[0].nombre;
+                    console.log('✅ Seleccionado primer trabajador:', recaudoTrabajadoresList[0].nombre);
+                }
+            }
+
+            // Disparar evento change para actualizar UI
+            select.dispatchEvent(new Event('change'));
+        }
+
+        // ========================================================================
+        //  SINCRONIZACIÓN AUTOMÁTICA
         // ========================================================================
 
         function iniciarSincronizacionAutomatica() {
@@ -2273,32 +2306,6 @@
         // ========================================================================
         //  FUNCIONES DE AUTOCOMPLETE
         // ========================================================================
-
-        function actualizarSelectTrabajadores() {
-            const select = document.getElementById('workerSelect');
-            if (!select) return;
-
-            select.innerHTML = '<option value="">TODOS</option>';
-            recaudoTrabajadoresList.forEach(trab => {
-                const option = document.createElement('option');
-                option.value = trab.nombre;
-                const textoMostrar = trab.codigo ? `${trab.nombre} (${trab.codigo})` : trab.nombre;
-                option.textContent = textoMostrar;
-                if (trab.predefinido) {
-                    option.textContent += ' ⭐';
-                }
-                select.appendChild(option);
-            });
-
-            let trabajadorSeleccionado = recaudoTrabajadoresList.find(t => t.predefinido === true);
-            if (trabajadorSeleccionado) {
-                select.value = trabajadorSeleccionado.nombre;
-            } else if (recaudoTrabajadoresList.length > 0) {
-                select.value = recaudoTrabajadoresList[0].nombre;
-            }
-
-            select.dispatchEvent(new Event('change'));
-        }
 
         function buscarFacturasRecaudoLocal(texto) {
             if (!texto || texto.trim() === '') return recaudoFacturasList;
@@ -2821,7 +2828,6 @@
         }
 
         function configurarEventosRecaudo() {
-            // Factura input
             document.querySelectorAll('#recaudoBody .factura-input').forEach(input => {
                 input.removeEventListener('input', window._facturaInputHandler);
                 input.removeEventListener('blur', window._facturaBlurHandler);
@@ -2859,7 +2865,6 @@
                 input.addEventListener('keydown', window._facturaKeydownHandler);
             });
 
-            // SIIGO input
             document.querySelectorAll('#recaudoBody .sii-go-input').forEach(input => {
                 input.removeEventListener('input', window._siigoInputHandler);
                 input.removeEventListener('blur', window._siigoBlurHandler);
@@ -2899,7 +2904,6 @@
                 input.addEventListener('keydown', window._siigoKeydownHandler);
             });
 
-            // Cliente input
             document.querySelectorAll('#recaudoBody .cliente-input').forEach(input => {
                 input.removeEventListener('input', window._clienteInputHandler);
                 input.removeEventListener('blur', window._clienteBlurHandler);
@@ -2930,7 +2934,6 @@
                 input.addEventListener('keydown', window._clienteKeydownHandler);
             });
 
-            // Fecha
             document.querySelectorAll('#recaudoBody .fecha-cobro').forEach(input => {
                 input.removeEventListener('change', window._fechaChangeHandler);
                 window._fechaChangeHandler = function(e) {
@@ -2939,7 +2942,6 @@
                 input.addEventListener('change', window._fechaChangeHandler);
             });
 
-            // Monto
             document.querySelectorAll('#recaudoBody .monto-input').forEach(input => {
                 input.removeEventListener('blur', window._montoBlurHandler);
                 input.removeEventListener('input', window._montoInputHandler);
